@@ -5,8 +5,7 @@ import cookieParser from "cookie-parser";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 
-mongoose
-  .connect("mongodb://127.0.0.1:27017", {
+mongoose.connect("mongodb://127.0.0.1:27017", {
     dbName: "backend",
   })
   .then(() => console.log("Database Connected"))
@@ -18,7 +17,7 @@ const userSchema = new mongoose.Schema({
   password: String,
 });
 
-const User = mongoose.model("User", userSchema);
+const User = mongoose.model("User", userSchema);//User naam ka model bana do userSchema ke hisab se
 
 const app = express();
 
@@ -32,8 +31,9 @@ app.set("view engine", "ejs");
 
 const isAuthenticated = async (req, res, next) => {
   const { token } = req.cookies;
+  // console.log(req.cookies);
   if (token) {
-    const decoded = jwt.verify(token, "sdjasdbajsdbjasd");
+    const decoded = jwt.verify(token, "sdjasdbajsdbjasds");
 
     req.user = await User.findById(decoded._id);
 
@@ -42,7 +42,7 @@ const isAuthenticated = async (req, res, next) => {
     res.redirect("/login");
   }
 };
-
+//params(path, middleware, arrow function)
 app.get("/", isAuthenticated, (req, res) => {
   res.render("logout", { name: req.user.name });
 });
@@ -67,11 +67,12 @@ app.post("/login", async (req, res) => {
   if (!isMatch)
     return res.render("login", { email, message: "Incorrect Password" });
 
-  const token = jwt.sign({ _id: user._id }, "sdjasdbajsdbjasd");
+  const token = jwt.sign({ _id: user._id }, "sdjasdbajsdbjasds");//
 
+  //params(name of the cookie, name of the token, props of this cookie)
   res.cookie("token", token, {
     httpOnly: true,
-    expires: new Date(Date.now() + 60 * 1000),
+    expires: new Date(Date.now() + 60*60 * 1000),//this cookies life= 1 min
   });
   res.redirect("/");
 });
@@ -91,11 +92,11 @@ app.post("/register", async (req, res) => {
     password: hashedPassword,
   });
 
-  const token = jwt.sign({ _id: user._id }, "sdjasdbajsdbjasd");
+  const token = jwt.sign({ _id: user._id }, "sdjasdbajsdbjas");
 
   res.cookie("token", token, {
     httpOnly: true,
-    expires: new Date(Date.now() + 60 * 1000),
+    expires: new Date(Date.now() + 60*60 * 1000),
   });
   res.redirect("/");
 });
@@ -109,6 +110,6 @@ app.get("/logout", (req, res) => {
 });
 
 app.listen(5000, () => {
-  console.log(`Server is working on port : http://localhost:${5000}/login`);
+  console.log(`Server is working on port : http://localhost:${5000}/register`);
 });
 
