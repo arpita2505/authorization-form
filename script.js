@@ -15,34 +15,71 @@ const userSchema = new mongoose.Schema({
   name: String,
   email: String,
   password: String,
+  refreshToken: String 
 });
 
-const User = mongoose.model("User", userSchema);//User naam ka model bana do userSchema ke hisab se
+const User = mongoose.model("User", userSchema);
+
+
+import { generateSecretKey } from "./key.js";
+import fs from 'fs';
+import dotenv from 'dotenv';
+dotenv.config();
+
+const PORT = process.env.PORT
+
+
+const accessSecret = generateSecretKey();
+const refreshSecret = generateSecretKey();
+
+process.env.ACCESS_SECRET = accessSecret;
+process.env.REFRESH_SECRET = refreshSecret;
 
 const app = express();
 
-// Using Middlewares
 app.use(express.static(path.join(path.resolve(), "public")));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-// Setting up View Engine
 app.set("view engine", "ejs");
 
-const isAuthenticated = async (req, res, next) => {
-  const { token } = req.cookies;
-  // console.log(req.cookies);
-  if (token) {
-    const decoded = jwt.verify(token, "sdjasdbajsdbjasds");
+const generateTokens = (user) => {
+  const accessToken = jwt.sign({ _id: user._id }, "accessSecret", {
+    expiresIn: "1h" 
+  });
+  const refreshToken = jwt.sign({ _id: user._id }, "refreshSecret", {
+    expiresIn: "7d"
+  });
+  return { accessToken, refreshToken };
+};
 
-    req.user = await User.findById(decoded._id);
+const isAuthenticated = async (req, res, next) => {
+  const { token, refreshToken } = req.cookies;
+  
+  if (!token && !refreshToken) {
+    return res.redirect("/login");
+  }
+
+  try {
+    if (token) {
+      const decoded = jwt.verify(token, "accessSecret");
+      req.user = await User.findById(decoded._id);
+    } else if (refreshToken) {
+      const decoded = jwt.verify(refreshToken, "refreshSecret");
+      req.user = await User.findById(decoded._id);
+    }
+
+    if (!req.user) {
+      throw new Error("User not found");
+    }
 
     next();
-  } else {
+  } catch (error) {
+    console.error("Invalid token:", error.message);
     res.redirect("/login");
   }
 };
-//params(path, middleware, arrow function)
+
 app.get("/", isAuthenticated, (req, res) => {
   res.render("logout", { name: req.user.name });
 });
@@ -67,13 +104,18 @@ app.post("/login", async (req, res) => {
   if (!isMatch)
     return res.render("login", { email, message: "Incorrect Password" });
 
-  const token = jwt.sign({ _id: user._id }, "sdjasdbajsdbjasds");//
+  const { accessToken, refreshToken } = generateTokens(user);
 
-  //params(name of the cookie, name of the token, props of this cookie)
-  res.cookie("token", token, {
+  res.cookie("token", accessToken, {
     httpOnly: true,
-    expires: new Date(Date.now() + 60*60 * 1000),//this cookies life= 1 min
+    expires: new Date(Date.now() + 60 * 60 * 1000),
   });
+
+  res.cookie("refreshToken", refreshToken, {
+    httpOnly: true,
+    expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+  });
+
   res.redirect("/");
 });
 
@@ -92,24 +134,61 @@ app.post("/register", async (req, res) => {
     password: hashedPassword,
   });
 
-  const token = jwt.sign({ _id: user._id }, "sdjasdbajsdbjas");
+  const { accessToken, refreshToken } = generateTokens(user);
 
-  res.cookie("token", token, {
+  res.cookie("token", accessToken, {
     httpOnly: true,
-    expires: new Date(Date.now() + 60*60 * 1000),
+    expires: new Date(Date.now() + 60 * 60 * 1000),
   });
+
+  res.cookie("refreshToken", refreshToken, {
+    httpOnly: true,
+    expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+  });
+
   res.redirect("/");
 });
 
 app.get("/logout", (req, res) => {
-  res.cookie("token", null, {
-    httpOnly: true,
-    expires: new Date(Date.now()),
-  });
+  res.clearCookie("token");
+  res.clearCookie("refreshToken");
   res.redirect("/");
 });
 
-app.listen(5000, () => {
-  console.log(`Server is working on port : http://localhost:${5000}/register`);
+app.get("/refresh-token", async (req, res) => {
+  const { refreshToken } = req.cookies;
+
+  if (!refreshToken) {
+    return res.status(401).json({ message: "Refresh token not found" });
+  }
+
+  try {
+    const decoded = jwt.verify(refreshToken, "refreshSecret");
+    const user = await User.findById(decoded._id);
+
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    const { accessToken, newRefreshToken } = generateTokens(user);
+
+    res.cookie("token", accessToken, {
+      httpOnly: true,
+      expires: new Date(Date.now() + 60 * 60 * 1000),
+    });
+
+    res.cookie("refreshToken", newRefreshToken, {
+      httpOnly: true,
+      expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    });
+
+    res.status(200).json({ accessToken });
+  } catch (error) {
+    console.error("Error refreshing token:", error.message);
+    res.status(403).json({ message: "Invalid refresh token" });
+  }
 });
 
+app.listen(5000, () => {
+  console.log(`Server is working on port : http://localhost:${PORT}/register`);
+});
